@@ -19,8 +19,11 @@ namespace PieMenu
 {
 	public partial class MainWindow : Window
 	{
-		IKeyboardEvents GlobalHook;
+		IKeyboardMouseEvents GlobalHook;
 		private const double INNER_RADIUS = 0.2;
+		private bool isShowing = false;
+		Point pieCenter;
+		int currentSelection = 0;
 
 		public MainWindow()
 		{
@@ -39,18 +42,23 @@ namespace PieMenu
 			}
 		}
 
+
 		private void GlobalHook_KeyDown(object sender, System.Windows.Forms.KeyEventArgs e)
 		{
 			if (e.KeyCode == Keys.D)
 			{
-				this.Show();
-				this.Topmost = true;
+				if (!isShowing)	
+				{
+					this.Show();
+					this.Topmost = true;
 
-				Matrix tx = PresentationSource.FromVisual(this).CompositionTarget.TransformFromDevice;
-				System.Drawing.Point pos = System.Windows.Forms.Control.MousePosition;
-				Point mouse = tx.Transform(new Point(pos.X, pos.Y));
-				Left = mouse.X - ActualWidth / 2.0;
-				Top = mouse.Y - ActualHeight / 2.0;
+					pieCenter = GetMousePosition();
+					Left = pieCenter.X - ActualWidth / 2.0;
+					Top = pieCenter.Y - ActualHeight / 2.0;
+					GlobalHook.MouseMove += UpdatePie;
+					isShowing = true;
+				}
+
 			}
 		}
 
@@ -59,7 +67,36 @@ namespace PieMenu
 			if (e.KeyCode == Keys.D)
 			{
 				this.Hide();
+				isShowing = false;
+				GlobalHook.MouseMove -= UpdatePie;
+				PerformSliceAction();
 			}
+		}
+		
+		private void UpdatePie(object sender, System.Windows.Forms.MouseEventArgs e)
+		{
+			Point mouse = GetMousePosition();
+			Point relative = new Point(mouse.X - pieCenter.X, mouse.Y - pieCenter.Y);
+			double rad = Math.Atan2(mouse.Y - pieCenter.Y, mouse.X - pieCenter.X);
+			currentSelection = ((int)((rad / Math.PI * 0.5 + 0.5) * 8.0 - 0.5) + 4) % 8;
+			for (int i = 0; i < 8; i++)
+			{
+				Path path = canvas.Children[i] as Path;
+				path.Opacity = i == currentSelection ? 1.0 : 0.5;
+			}
+		}
+
+		private void PerformSliceAction()
+		{
+			Console.WriteLine(string.Format("Slice {0} was pressed.", currentSelection));
+		}
+
+		private Point GetMousePosition()
+		{
+			Matrix tx = PresentationSource.FromVisual(this).CompositionTarget.TransformFromDevice;
+			System.Drawing.Point pos = System.Windows.Forms.Control.MousePosition;
+			Point mouse = tx.Transform(new Point(pos.X, pos.Y));
+			return mouse;
 		}
 
 		private IEnumerable<Path> Slices()
@@ -67,8 +104,9 @@ namespace PieMenu
 			for (int i = 0; i < 8; i++)
 			{
 				Path slice = DrawSlice(i);
-				byte v = i % 2 == 0 ? (byte)110 : (byte)90;
-				slice.Fill = new SolidColorBrush(Color.FromArgb(127, v, v, v));
+				byte v = i % 2 == 0 ? (byte)200 : (byte)180;
+				slice.Fill = new SolidColorBrush(Color.FromRgb(v, v, v));
+				slice.Opacity = 0.5;
 				yield return slice;
 			}
 		}
