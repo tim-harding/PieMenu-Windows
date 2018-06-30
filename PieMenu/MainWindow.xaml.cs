@@ -14,27 +14,48 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using Gma.System.MouseKeyHook;
+using System.Runtime.InteropServices;
 
 namespace PieMenu
 {
 	public partial class MainWindow : Window
 	{
-		IKeyboardMouseEvents GlobalHook;
+		private IKeyboardMouseEvents GlobalHook;
 		private const double INNER_RADIUS = 0.2;
-		private bool isShowing = false;
-		Point pieCenter;
-		int currentSelection = 0;
+		private bool isPresenting = false;
+		private Point pieCenter;
+		private int currentSelection = 0;
+		private IntPtr hWnd;
+
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetForegroundWindow();
+
+		[DllImport("user32.dll")]
+		private static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+		[DllImport("user32.dll")]
+		private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+		[DllImport("user32.dll")]
+		private static extern bool PostMessage(IntPtr hWnd, UInt32 Msg, int wParam, int lParam);
 
 		public MainWindow()
 		{
 			InitializeComponent();
 
+			// Just pop over, don't steal focus
+			this.ShowActivated = false;
 			this.Hide();
-			this.ShowActivated = false; // Just pop over, don't steal focus
 
 			GlobalHook = Hook.GlobalEvents();
-			GlobalHook.KeyDown += GlobalHook_KeyDown;
 			GlobalHook.KeyUp += GlobalHook_KeyUp;
+
+			Combination combo = Combination.TriggeredBy(Keys.B).With(Keys.Control);
+			Dictionary<Combination, Action> assignment = new Dictionary<Combination, Action>
+			{
+				{combo, Present}
+			};
+			GlobalHook.OnCombination(assignment);
 
 			foreach (Path slice in Slices())
 			{
@@ -42,40 +63,35 @@ namespace PieMenu
 			}
 		}
 
-
-		private void GlobalHook_KeyDown(object sender, System.Windows.Forms.KeyEventArgs e)
+		private void Present()
 		{
-			if (e.KeyCode == Keys.D)
+			hWnd = GetForegroundWindow();
+			if (!isPresenting)
 			{
-				if (!isShowing)	
-				{
-					this.Show();
-					this.Topmost = true;
-
-					pieCenter = GetMousePosition();
-					Left = pieCenter.X - ActualWidth / 2.0;
-					Top = pieCenter.Y - ActualHeight / 2.0;
-					GlobalHook.MouseMove += UpdatePie;
-					isShowing = true;
-				}
-
+				pieCenter = GetMousePosition();
+				this.Left = pieCenter.X - ActualWidth / 2.0;
+				this.Top = pieCenter.Y - ActualHeight / 2.0;
+				GlobalHook.MouseMove += UpdatePie;
+				isPresenting = true;
 			}
 		}
 
 		private void GlobalHook_KeyUp(object sender, System.Windows.Forms.KeyEventArgs e)
 		{
-			if (e.KeyCode == Keys.D)
-			{
-				this.Hide();
-				isShowing = false;
-				GlobalHook.MouseMove -= UpdatePie;
-				PerformSliceAction();
-			}
+			this.Hide();
+			isPresenting = false;
+			GlobalHook.MouseMove -= UpdatePie;
+			Keystroke();
+			//PerformSliceAction();
 		}
-		
+
 		private void UpdatePie(object sender, System.Windows.Forms.MouseEventArgs e)
 		{
 			Point mouse = GetMousePosition();
+			if (mouse == pieCenter) return;
+
+			this.Show();
+			this.Topmost = true;
 			Point relative = new Point(mouse.X - pieCenter.X, mouse.Y - pieCenter.Y);
 			double rad = Math.Atan2(mouse.Y - pieCenter.Y, mouse.X - pieCenter.X);
 			currentSelection = ((int)((rad / Math.PI * 0.5 + 0.5) * 8.0 - 0.5) + 4) % 8;
@@ -89,14 +105,34 @@ namespace PieMenu
 		private void PerformSliceAction()
 		{
 			Console.WriteLine(string.Format("Slice {0} was pressed.", currentSelection));
+			//SetForegroundWindow(hWnd);
+			//System.Threading.SynchronizationContext.Current?.Post(_ => { Keystroke(); }, null);
+			PostMessage(hWnd, 0x0100, 0x74, 0);
+
+		}
+
+		private void Keystroke()
+		{
+			SetForegroundWindow(hWnd);
+			SetActiveWindow(hWnd);
+			try
+			{
+				SendKeys.Send("^{TAB}");
+			}
+			catch (InvalidOperationException e)
+			{
+				Console.WriteLine(e.Message);
+			}
+			catch (ArgumentException e)
+			{
+				Console.WriteLine("Invalid keystroke sent.");
+			}
 		}
 
 		private Point GetMousePosition()
 		{
-			Matrix tx = PresentationSource.FromVisual(this).CompositionTarget.TransformFromDevice;
-			System.Drawing.Point pos = System.Windows.Forms.Control.MousePosition;
-			Point mouse = tx.Transform(new Point(pos.X, pos.Y));
-			return mouse;
+			System.Drawing.Point pt = System.Windows.Forms.Cursor.Position;
+			return new Point(pt.X, pt.Y);
 		}
 
 		private IEnumerable<Path> Slices()
