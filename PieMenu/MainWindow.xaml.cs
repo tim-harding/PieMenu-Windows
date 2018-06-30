@@ -15,35 +15,26 @@ using System.Windows.Navigation;
 using System.Windows.Shapes;
 using Gma.System.MouseKeyHook;
 using System.Runtime.InteropServices;
+using WindowsInput;
+using WindowsInput.Native;
 
 namespace PieMenu
 {
 	public partial class MainWindow : Window
 	{
 		private IKeyboardMouseEvents GlobalHook;
-		private const double INNER_RADIUS = 0.2;
-		private bool isPresenting = false;
+		private const double INNER_FRACTION = 0.2;
+		private const double GAP = 0.02; // Radians on outer circumfrence
+		private bool isActive = false;
+		private bool pieHasDisplayed = false;
 		private Point pieCenter;
 		private int currentSelection = 0;
-		private IntPtr hWnd;
-
-		[DllImport("user32.dll")]
-		private static extern IntPtr GetForegroundWindow();
-
-		[DllImport("user32.dll")]
-		private static extern IntPtr SetActiveWindow(IntPtr hWnd);
-
-		[DllImport("user32.dll")]
-		private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-		[DllImport("user32.dll")]
-		private static extern bool PostMessage(IntPtr hWnd, UInt32 Msg, int wParam, int lParam);
+		private InputSimulator simulator = new InputSimulator();
 
 		public MainWindow()
 		{
 			InitializeComponent();
 
-			// Just pop over, don't steal focus
 			this.ShowActivated = false;
 			this.Hide();
 
@@ -65,36 +56,58 @@ namespace PieMenu
 
 		private void Present()
 		{
-			hWnd = GetForegroundWindow();
-			if (!isPresenting)
+			if (!isActive)
 			{
 				pieCenter = GetMousePosition();
-				this.Left = pieCenter.X - ActualWidth / 2.0;
-				this.Top = pieCenter.Y - ActualHeight / 2.0;
+				double offset = this.Width / 2.0;
+				this.Left = pieCenter.X - offset;
+				this.Top = pieCenter.Y - offset;
 				GlobalHook.MouseMove += UpdatePie;
-				isPresenting = true;
+				isActive = true;
 			}
+		}
+
+		private void Recede()
+		{
+			this.Hide();
+			GlobalHook.MouseMove -= UpdatePie;
+			PerformSliceAction();
+			pieHasDisplayed = false;
 		}
 
 		private void GlobalHook_KeyUp(object sender, System.Windows.Forms.KeyEventArgs e)
 		{
-			this.Hide();
-			isPresenting = false;
-			GlobalHook.MouseMove -= UpdatePie;
-			Keystroke();
-			//PerformSliceAction();
+			if (isActive)
+			{
+				isActive = false;
+				Recede();
+			}
 		}
 
 		private void UpdatePie(object sender, System.Windows.Forms.MouseEventArgs e)
 		{
 			Point mouse = GetMousePosition();
-			if (mouse == pieCenter) return;
+			if (!pieHasDisplayed)
+			{
+				// If the mouse doesn't get moved, don't show the pie
+				if (mouse == pieCenter) return;
+				this.Show();
+				this.Topmost = true;				
+				pieHasDisplayed = true;
+			}
 
-			this.Show();
-			this.Topmost = true;
 			Point relative = new Point(mouse.X - pieCenter.X, mouse.Y - pieCenter.Y);
-			double rad = Math.Atan2(mouse.Y - pieCenter.Y, mouse.X - pieCenter.X);
-			currentSelection = ((int)((rad / Math.PI * 0.5 + 0.5) * 8.0 - 0.5) + 4) % 8;
+			double length = Math.Sqrt(relative.X * relative.X + relative.Y * relative.Y);
+			if (length / this.Width * 2.0 < INNER_FRACTION)
+			{
+				currentSelection = -1;
+			}
+			else
+			{
+				double select = Math.Atan2(relative.Y, relative.X) / Math.PI * 4.0;
+				select += select < 0 ? 8.5 : 0.5;
+				currentSelection = (int)(select) % 8;
+			}
 			for (int i = 0; i < 8; i++)
 			{
 				Path path = canvas.Children[i] as Path;
@@ -105,28 +118,7 @@ namespace PieMenu
 		private void PerformSliceAction()
 		{
 			Console.WriteLine(string.Format("Slice {0} was pressed.", currentSelection));
-			//SetForegroundWindow(hWnd);
-			//System.Threading.SynchronizationContext.Current?.Post(_ => { Keystroke(); }, null);
-			PostMessage(hWnd, 0x0100, 0x74, 0);
-
-		}
-
-		private void Keystroke()
-		{
-			SetForegroundWindow(hWnd);
-			SetActiveWindow(hWnd);
-			try
-			{
-				SendKeys.Send("^{TAB}");
-			}
-			catch (InvalidOperationException e)
-			{
-				Console.WriteLine(e.Message);
-			}
-			catch (ArgumentException e)
-			{
-				Console.WriteLine("Invalid keystroke sent.");
-			}
+			simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.TAB);
 		}
 
 		private Point GetMousePosition()
@@ -140,8 +132,8 @@ namespace PieMenu
 			for (int i = 0; i < 8; i++)
 			{
 				Path slice = DrawSlice(i);
-				byte v = i % 2 == 0 ? (byte)200 : (byte)180;
-				slice.Fill = new SolidColorBrush(Color.FromRgb(v, v, v));
+				const byte value = 200;
+				slice.Fill = new SolidColorBrush(Color.FromRgb(value, value, value));
 				slice.Opacity = 0.5;
 				yield return slice;
 			}
@@ -149,12 +141,20 @@ namespace PieMenu
 
 		private Path DrawSlice(int slice)
 		{
-			Point startOuter = PointOnCircumfrence(slice, 1.0);
-			Point startInner = PointOnCircumfrence(slice, INNER_RADIUS);
-			Point endOuter = PointOnCircumfrence(slice + 1, 1.0);
-			Point endInner = PointOnCircumfrence(slice + 1, INNER_RADIUS);
-			Size sizeOuter = new Size(Width / 2.0, Height / 2.0);
-			Size sizeInner = new Size(Width / 2.0 * INNER_RADIUS, Height / 2.0 * INNER_RADIUS);
+			const double halfSliceSweep = Math.PI / 8.0;
+			double bisector = slice * Math.PI / 4.0;
+			double angleOffsetOuter = halfSliceSweep - GAP;
+			double angleOffsetInner = halfSliceSweep - GAP / INNER_FRACTION;
+			double outerRadius = this.Width / 2.0;
+			double innerRadius = outerRadius * INNER_FRACTION;
+
+			Point startOuter = PointOnCircle(bisector - angleOffsetOuter, outerRadius);
+			Point startInner = PointOnCircle(bisector - angleOffsetInner, innerRadius);
+			Point endOuter = PointOnCircle(bisector + angleOffsetOuter, outerRadius);
+			Point endInner = PointOnCircle(bisector + angleOffsetInner, innerRadius);
+
+			Size sizeOuter = new Size(outerRadius, outerRadius);
+			Size sizeInner = new Size(innerRadius, innerRadius);
 
 			PathSegmentCollection segments = new PathSegmentCollection();
 			segments.Add(new ArcSegment(endOuter, sizeOuter, 45.0, false, SweepDirection.Clockwise, true));
@@ -171,12 +171,10 @@ namespace PieMenu
 			return path;
 		}
 
-		private Point PointOnCircumfrence(int slice, double fraction)
+		private Point PointOnCircle(double radians, double radius)
 		{
-			double rad = (slice / 4.0 + 1.0 / 8.0) * Math.PI;
-			double x = (fraction * Math.Cos(rad) + 1.0) * Width / 2.0;
-			double y = (fraction * Math.Sin(rad) + 1.0) * Height / 2.0;
-			return new Point(x, y);
+			double offset = this.Width / 2.0;
+			return new Point(Math.Cos(radians) * radius + offset, Math.Sin(radians) * radius + offset);
 		}
 	}
 }
