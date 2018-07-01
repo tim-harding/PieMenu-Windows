@@ -1,20 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Forms;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
 using System.Windows.Shapes;
 using Gma.System.MouseKeyHook;
-using System.Runtime.InteropServices;
 using WindowsInput;
 using WindowsInput.Native;
 
@@ -24,6 +15,7 @@ namespace PieMenu
 	{
 		private IKeyboardMouseEvents GlobalHook;
 		private const double INNER_FRACTION = 0.2;
+		private const double TEXT_FRACTION = 0.7;
 		private const double GAP = 0.02; // Radians on outer circumfrence
 		private bool isActive = false;
 		private bool pieHasDisplayed = false;
@@ -33,10 +25,14 @@ namespace PieMenu
 
 		public MainWindow()
 		{
-			InitializeComponent();
-
+			this.InitializeComponent();
 			this.ShowActivated = false;
 			this.Hide();
+
+			SolidColorBrush windowBackgroundBrush = new SolidColorBrush();
+			windowBackgroundBrush.Color = Color.FromArgb(0, 0, 0, 0);
+			windowBackgroundBrush.Opacity = 0;
+			this.Background = windowBackgroundBrush;
 
 			GlobalHook = Hook.GlobalEvents();
 			GlobalHook.KeyUp += GlobalHook_KeyUp;
@@ -51,6 +47,25 @@ namespace PieMenu
 			foreach (Path slice in Slices())
 			{
 				canvas.Children.Add(slice);
+			}
+
+			for (int i = 0; i < 8; i++)
+			{
+				double bisector = i * Math.PI / 4.0;
+				Point point = PointOnCircle(bisector, this.Width / 2.0 * TEXT_FRACTION);
+				TextBlock text = new TextBlock();
+				text.Text = TitleProvider(i);
+				// Styled as BaseTextBlockStyle
+				text.Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 255));
+				text.TextAlignment = TextAlignment.Center;
+				text.Width = 100;
+				text.Height = 22;
+				text.FontFamily = new FontFamily("Segoe UI");
+				text.FontWeight = FontWeights.SemiBold;
+				text.FontSize = 15.0;
+				canvas.Children.Add(text);
+				Canvas.SetLeft(text, point.X - text.Width / 2.0);
+				Canvas.SetTop(text, point.Y - text.Height / 2.0);
 			}
 		}
 
@@ -75,7 +90,7 @@ namespace PieMenu
 			pieHasDisplayed = false;
 		}
 
-		private void GlobalHook_KeyUp(object sender, System.Windows.Forms.KeyEventArgs e)
+		private void GlobalHook_KeyUp(object sender, KeyEventArgs e)
 		{
 			if (isActive)
 			{
@@ -84,9 +99,10 @@ namespace PieMenu
 			}
 		}
 
-		private void UpdatePie(object sender, System.Windows.Forms.MouseEventArgs e)
+		private void UpdatePie(object sender, MouseEventArgs e)
 		{
 			Point mouse = GetMousePosition();
+			currentSelection = -1;
 			if (!pieHasDisplayed)
 			{
 				// If the mouse doesn't get moved, don't show the pie
@@ -98,11 +114,7 @@ namespace PieMenu
 
 			Point relative = new Point(mouse.X - pieCenter.X, mouse.Y - pieCenter.Y);
 			double length = Math.Sqrt(relative.X * relative.X + relative.Y * relative.Y);
-			if (length / this.Width * 2.0 < INNER_FRACTION)
-			{
-				currentSelection = -1;
-			}
-			else
+			if (length / this.Width * 2.0 > INNER_FRACTION)
 			{
 				double select = Math.Atan2(relative.Y, relative.X) / Math.PI * 4.0;
 				select += select < 0 ? 8.5 : 0.5;
@@ -111,14 +123,31 @@ namespace PieMenu
 			for (int i = 0; i < 8; i++)
 			{
 				Path path = canvas.Children[i] as Path;
-				path.Opacity = i == currentSelection ? 1.0 : 0.5;
+				path.Opacity = i == currentSelection ? 0.8 : 0.6;
 			}
 		}
 
 		private void PerformSliceAction()
 		{
 			Console.WriteLine(string.Format("Slice {0} was pressed.", currentSelection));
-			simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.TAB);
+			switch (currentSelection)
+			{
+				case 0:
+					simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.TAB);
+					break;
+				case 2:
+					simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_W);
+					break;
+				case 4:
+					// This shouldn't work
+					simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.SHIFT, VirtualKeyCode.TAB);
+					break;
+				case 6:
+					simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_T);
+					break;
+				default:
+					break;
+			}
 		}
 
 		private Point GetMousePosition()
@@ -132,11 +161,26 @@ namespace PieMenu
 			for (int i = 0; i < 8; i++)
 			{
 				Path slice = DrawSlice(i);
-				const byte value = 200;
+				const byte value = 0;
 				slice.Fill = new SolidColorBrush(Color.FromRgb(value, value, value));
-				slice.Opacity = 0.5;
 				yield return slice;
 			}
+		}
+
+		private string TitleProvider(int slice)
+		{
+			string[] titles = new string[]
+			{
+				"first",
+				"second",
+				"third",
+				"fourth",
+				"fifth",
+				"sixth",
+				"seventh",
+				"eighth"
+			};
+			return titles[slice];
 		}
 
 		private Path DrawSlice(int slice)
@@ -157,10 +201,10 @@ namespace PieMenu
 			Size sizeInner = new Size(innerRadius, innerRadius);
 
 			PathSegmentCollection segments = new PathSegmentCollection();
-			segments.Add(new ArcSegment(endOuter, sizeOuter, 45.0, false, SweepDirection.Clockwise, true));
-			segments.Add(new LineSegment(endInner, true));
-			segments.Add(new ArcSegment(startInner, sizeInner, 45.0, false, SweepDirection.Counterclockwise, true));
-			segments.Add(new LineSegment(startOuter, true));
+			segments.Add(new ArcSegment(endOuter, sizeOuter, 45.0, isLargeArc: false, SweepDirection.Clockwise, isStroked: false));
+			segments.Add(new LineSegment(endInner, isStroked: false));
+			segments.Add(new ArcSegment(startInner, sizeInner, 45.0, isLargeArc: false, SweepDirection.Counterclockwise, isStroked: false));
+			segments.Add(new LineSegment(startOuter, isStroked: false));
 
 			PathFigure figure = new PathFigure(startOuter, segments, true);
 			PathFigureCollection figures = new PathFigureCollection();
