@@ -52,6 +52,8 @@
 			return new Point(pt.X, pt.Y);
 		}
 
+
+
 		#region IPieViewProvider implementation
 
 		public string[] TitleText()

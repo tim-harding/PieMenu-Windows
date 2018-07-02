@@ -5,6 +5,8 @@
 	using WindowsInput;
 	using WindowsInput.Native;
 	using System.Windows.Forms;
+	using System.Runtime.InteropServices;
+	using System.Diagnostics;
 
 	interface IBindingsPresentationProvider
 	{
@@ -20,6 +22,13 @@
 		private readonly IKeyboardMouseEvents hook = Hook.GlobalEvents();
 		private readonly InputSimulator simulator = new InputSimulator();
 		private Binding[] bindings;
+		private uint windowHandle;
+
+		[DllImport("User32.dll")]
+		private static extern uint GetWindowThreadProcessId(uint windowHandle, out uint processId);
+
+		[DllImport("User32.dll")]
+		private static extern uint GetForegroundWindow();
 
 		public void Bind()
 		{
@@ -30,8 +39,9 @@
 
 		private void Hook_KeyDown(object sender, KeyEventArgs e)
 		{
-			if (e.KeyCode == Keys.D)
+			if (e.KeyCode == Keys.F4)
 			{
+				windowHandle = GetForegroundWindow();
 				provider?.Present();
 			}
 		}
@@ -46,6 +56,22 @@
 			provider?.Update();
 		}
 
+		private string FindExecutable()
+		{
+			uint processId;
+			GetWindowThreadProcessId(windowHandle, out processId);
+			try
+			{
+				Process process = Process.GetProcessById((int)processId);
+				return process?.MainModule.FileName;
+			}
+			catch (Exception e)
+			{
+				Console.WriteLine(e.Message);
+				return null;
+			}
+		}
+
 		public void PerformSliceAction(int slice)
 		{
 			Console.WriteLine(string.Format("Slice {0} was pressed.", slice));
@@ -56,6 +82,9 @@
 					break;
 				case 2:
 					simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_W);
+					break;
+				case 3:
+					Console.WriteLine(FindExecutable() ?? "");
 					break;
 				case 4:
 					VirtualKeyCode[] modifiers = new VirtualKeyCode[] { VirtualKeyCode.CONTROL, VirtualKeyCode.SHIFT };
