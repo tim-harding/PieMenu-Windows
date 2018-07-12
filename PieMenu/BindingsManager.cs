@@ -3,26 +3,24 @@
 	using System;
 	using Gma.System.MouseKeyHook;
 	using WindowsInput;
-	using WindowsInput.Native;
 	using System.Windows.Forms;
 	using System.Runtime.InteropServices;
 	using System.Diagnostics;
-
-	interface IBindingsPresentationProvider
-	{
-		void Present();
-		void Recede();
-		void Update();
-	}
+	using System.Collections.Generic;
 
 	class BindingsManager
 	{
-		public IBindingsPresentationProvider provider;
-
 		private readonly IKeyboardMouseEvents hook = Hook.GlobalEvents();
 		private readonly InputSimulator simulator = new InputSimulator();
-		private Binding[] bindings;
-		private uint windowHandle;
+		private Config config = Config.FromSettings();
+		private List<SliceOptions> currentOptions = new List<SliceOptions>();
+
+		public delegate void PresentHandler();
+		public event PresentHandler beginSelection;
+		public delegate void RecedeHandler();
+		public event RecedeHandler endSelection;
+		public delegate void UpdateHandler();
+		public event UpdateHandler updateSelection;
 
 		[DllImport("User32.dll")]
 		private static extern uint GetWindowThreadProcessId(uint windowHandle, out uint processId);
@@ -30,39 +28,49 @@
 		[DllImport("User32.dll")]
 		private static extern uint GetForegroundWindow();
 
-		public void Bind()
+		public BindingsManager()
 		{
 			hook.KeyDown += Hook_KeyDown;
 			hook.KeyUp += Hook_KeyUp;
-			hook.MouseMove += Hook_MouseMove;
 		}
 
 		private void Hook_KeyDown(object sender, KeyEventArgs e)
 		{
-			if (e.KeyCode == Keys.F4)
+			foreach (var binding in config.bindings)
 			{
-				windowHandle = GetForegroundWindow();
-				provider?.Present();
+				if (e.KeyCode == binding.trigger)
+				{
+					string exe = FindExecutable(GetForegroundWindow());
+					List<SliceOptions> options;
+					if (binding.apps.TryGetValue(exe, out options))
+					{
+						hook.MouseMove += Hook_MouseMove;
+						currentOptions = options;
+						beginSelection?.Invoke();
+					}
+					break;
+				}
 			}
 		}
 
 		private void Hook_KeyUp(object sender, KeyEventArgs e)
 		{
-			provider?.Recede();
+			hook.MouseMove -= Hook_MouseMove;
+			endSelection?.Invoke();
 		}
 
 		private void Hook_MouseMove(object sender, MouseEventArgs e)
 		{
-			provider?.Update();
+			updateSelection?.Invoke();
 		}
 
-		private string FindExecutable()
+		private string FindExecutable(uint windowHandle)
 		{
 			uint processId;
 			GetWindowThreadProcessId(windowHandle, out processId);
 			try
 			{
-				Process process = Process.GetProcessById((int)processId);
+				var process = Process.GetProcessById((int)processId);
 				return process?.MainModule.FileName;
 			}
 			catch (Exception e)
@@ -74,44 +82,21 @@
 
 		public void PerformSliceAction(int slice)
 		{
-			Console.WriteLine(string.Format("Slice {0} was pressed.", slice));
-			switch (slice)
+			if (slice < currentOptions.Count && slice > -1)
 			{
-				case 0:
-					simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.TAB);
-					break;
-				case 2:
-					simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_W);
-					break;
-				case 3:
-					Console.WriteLine(FindExecutable() ?? "");
-					break;
-				case 4:
-					VirtualKeyCode[] modifiers = new VirtualKeyCode[] { VirtualKeyCode.CONTROL, VirtualKeyCode.SHIFT };
-					simulator.Keyboard.ModifiedKeyStroke(modifiers, VirtualKeyCode.TAB);
-					break;
-				case 6:
-					simulator.Keyboard.ModifiedKeyStroke(VirtualKeyCode.CONTROL, VirtualKeyCode.VK_T);
-					break;
-				default:
-					break;
+				SliceOptions options = currentOptions[slice];
+				simulator.Keyboard.ModifiedKeyStroke(options.modifiers, options.trigger);
 			}
 		}
 
-		public string[] CurrentTitles()
+		public int SliceCount()
 		{
-			// Temporary
-			return new string[]
-			{
-				"first",
-				"second",
-				"third",
-				"fourth",
-				"fifth",
-				"sixth",
-				"seventh",
-				"eighth"
-			};
+			return currentOptions.Count;
+		}
+
+		public string TitleForSlice(int slice)
+		{
+			return currentOptions[slice].title;
 		}
 	}
 }

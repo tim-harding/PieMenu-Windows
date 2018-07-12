@@ -26,9 +26,9 @@ namespace PieMenu.Properties {
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("0.2")]
-        public float InnerFraction {
+        public double InnerFraction {
             get {
-                return ((float)(this["InnerFraction"]));
+                return ((double)(this["InnerFraction"]));
             }
             set {
                 this["InnerFraction"] = value;
@@ -38,9 +38,9 @@ namespace PieMenu.Properties {
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("0.7")]
-        public float TextFraction {
+        public double TextFraction {
             get {
-                return ((float)(this["TextFraction"]));
+                return ((double)(this["TextFraction"]));
             }
             set {
                 this["TextFraction"] = value;
@@ -50,9 +50,9 @@ namespace PieMenu.Properties {
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("0.02")]
-        public float Gap {
+        public double Gap {
             get {
-                return ((float)(this["Gap"]));
+                return ((double)(this["Gap"]));
             }
             set {
                 this["Gap"] = value;
@@ -68,6 +68,18 @@ namespace PieMenu.Properties {
             }
             set {
                 this["Size"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string Config {
+            get {
+                return ((string)(this["Config"]));
+            }
+            set {
+                this["Config"] = value;
             }
         }
     }

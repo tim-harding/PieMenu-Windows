@@ -4,7 +4,7 @@
 	using System.Windows;
 	using System.Windows.Forms;
 
-	public partial class PieWindow : Window, IPieViewProvider, IBindingsPresentationProvider
+	public partial class PieWindow : Window, IPieViewProvider
 	{
 		private NotifyIcon tray = null;
 		private PieView view = new PieView();
@@ -24,8 +24,9 @@
 			this.Width = size;
 			this.Height = size;
 
-			bindings.provider = this;
-			bindings.Bind();
+			bindings.beginSelection += Present;
+			bindings.endSelection += Recede;
+			bindings.updateSelection += Update;
 			view.provider = this;
 			view.Draw();
 			this.AddChild(view.content);
@@ -42,33 +43,9 @@
 
 		private void TrayClicked(object sender, EventArgs e)
 		{
-			SettingsWindow settings = new SettingsWindow();
+			var settings = new SettingsWindow();
 			settings.Show();
 		}
-
-		private Point GetMousePosition()
-		{
-			System.Drawing.Point pt = System.Windows.Forms.Cursor.Position;
-			return new Point(pt.X, pt.Y);
-		}
-
-
-
-		#region IPieViewProvider implementation
-
-		public string[] TitleText()
-		{
-			return bindings.CurrentTitles();
-		}
-
-		public int Selection()
-		{
-			return currentSelection;
-		}
-
-		#endregion
-
-		#region IBindingsPresentationProvider implementation
 
 		public void Present()
 		{
@@ -79,6 +56,7 @@
 			double offset = this.Width / 2.0;
 			this.Left = pieCenter.X - offset;
 			this.Top = pieCenter.Y - offset;
+			view.Draw();
 		}
 
 		public void Recede()
@@ -106,16 +84,40 @@
 				pieHasDisplayed = true;
 			}
 
-			float innerFraction = Properties.Settings.Default.InnerFraction;
-			Point relative = new Point(mouse.X - pieCenter.X, mouse.Y - pieCenter.Y);
+			double innerFraction = Properties.Settings.Default.InnerFraction;
+			var relative = new Point(mouse.X - pieCenter.X, mouse.Y - pieCenter.Y);
 			double length = Math.Sqrt(relative.X * relative.X + relative.Y * relative.Y);
 			if (length / this.Width * 2.0 > innerFraction)
 			{
-				double select = Math.Atan2(relative.Y, relative.X) / Math.PI * 4.0;
-				select += select < 0 ? 8.5 : 0.5;
-				currentSelection = (int)(select) % 8;
+				int sliceCount = bindings.SliceCount();
+				double select = Math.Atan2(relative.Y, relative.X) / Math.PI * sliceCount / 2.0;
+				select += 2.25 * sliceCount + 0.5;
+				currentSelection = (int)(select) % sliceCount;
 			}
 			view.UpdateHighlighting();
+		}
+
+		private Point GetMousePosition()
+		{
+			System.Drawing.Point pt = System.Windows.Forms.Cursor.Position;
+			return new Point(pt.X, pt.Y);
+		}
+
+		#region IPieViewProvider implementation
+
+		public int SliceCount()
+		{
+			return bindings.SliceCount();
+		}
+
+		public string TitleText(int slice)
+		{
+			return bindings.TitleForSlice(slice);
+		}
+
+		public int Selection()
+		{
+			return currentSelection;
 		}
 
 		#endregion

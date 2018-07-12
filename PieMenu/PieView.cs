@@ -1,7 +1,6 @@
 ﻿namespace PieMenu
 {
 	using System;
-	using System.Collections.Generic;
 	using System.Windows;
 	using System.Windows.Controls;
 	using System.Windows.Media;
@@ -9,7 +8,8 @@
 
 	interface IPieViewProvider
 	{
-		string[] TitleText();
+		int SliceCount();
+		string TitleText(int slice);
 		int Selection();
 	}
 
@@ -17,6 +17,8 @@
 	{
 		public readonly Canvas content = new Canvas();
 		public IPieViewProvider provider;
+
+		private Path[] paths;
 
 		public PieView()
 		{
@@ -27,14 +29,15 @@
 
 		public void Draw()
 		{
+			int sliceCount = provider.SliceCount();
+			paths = new Path[sliceCount];
 			content.Children.Clear();
-			foreach (Path slice in Slices())
+			for (var i = 0; i < sliceCount; i++)
 			{
-				content.Children.Add(slice);
-			}
-			foreach (TextBlock title in Titles())
-			{
-				content.Children.Add(title);
+				Path path = DrawSlice(i, sliceCount);
+				paths[i] = path;
+				content.Children.Add(path);
+				content.Children.Add(DrawTitle(i, sliceCount, provider.TitleText(i)));
 			}
 			UpdateHighlighting();
 		}
@@ -42,56 +45,40 @@
 		public void UpdateHighlighting()
 		{
 			int selection = provider?.Selection() ?? -1;
-			for (int i = 0; i < 8; i++)
+			for (var i = 0; i < paths.Length; i++)
 			{
-				Path path = content.Children[i] as Path;
-				path.Opacity = i == selection ? 0.8 : 0.6;
+				paths[i].Opacity = i == selection ? 0.8 : 0.6;
 			}
 		}
 
-		private IEnumerable<Path> Slices()
+		private TextBlock DrawTitle(int slice, int count, string text)
 		{
-			for (int i = 0; i < 8; i++)
-			{
-				Path slice = DrawSlice(i);
-				const byte brightness = 0;
-				slice.Fill = new SolidColorBrush(Color.FromRgb(brightness, brightness, brightness));
-				yield return slice;
-			}
+			var title = new TextBlock();
+			title.Text = text;
+
+			// Styled as BaseTextBlockStyle
+			title.Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 255));
+			title.TextAlignment = TextAlignment.Center;
+			title.Width = 100;
+			title.Height = 22;
+			title.FontFamily = new FontFamily("Segoe UI");
+			title.FontWeight = FontWeights.SemiBold;
+			title.FontSize = 15.0;
+
+			double textFraction = Properties.Settings.Default.TextFraction;
+			double bisector = Math.PI * ((double)slice / count * 2.0 - 0.5);
+			Point point = PointOnCircle(bisector, content.Width / 2.0 * textFraction);
+			Canvas.SetLeft(title, point.X - title.Width / 2.0);
+			Canvas.SetTop(title, point.Y - title.Height / 2.0);
+			return title;
 		}
 
-		private IEnumerable<TextBlock> Titles()
+		private Path DrawSlice(int slice, int count)
 		{
-			string[] titles = provider?.TitleText() ?? new string[0];
-			for (int i = 0; i < 8; i++)
-			{
-				TextBlock text = new TextBlock();
-				text.Text = i < titles.Length ? titles[i] : "";
-
-				// Styled as BaseTextBlockStyle
-				text.Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 255));
-				text.TextAlignment = TextAlignment.Center;
-				text.Width = 100;
-				text.Height = 22;
-				text.FontFamily = new FontFamily("Segoe UI");
-				text.FontWeight = FontWeights.SemiBold;
-				text.FontSize = 15.0;
-
-				float textFraction = Properties.Settings.Default.TextFraction;
-				double bisector = i * Math.PI / 4.0;
-				Point point = PointOnCircle(bisector, content.Width / 2.0 * textFraction);
-				Canvas.SetLeft(text, point.X - text.Width / 2.0);
-				Canvas.SetTop(text, point.Y - text.Height / 2.0);
-				yield return text;
-			}
-		}
-
-		private Path DrawSlice(int slice)
-		{
-			float gap = Properties.Settings.Default.Gap;
-			float innerFraction = Properties.Settings.Default.InnerFraction;
-			const double halfSliceSweep = Math.PI / 8.0;
-			double bisector = slice * Math.PI / 4.0;
+			double gap = Properties.Settings.Default.Gap;
+			double innerFraction = Properties.Settings.Default.InnerFraction;
+			double halfSliceSweep = Math.PI / count;
+			double bisector = Math.PI * ((double)slice / count * 2.0 - 0.5);
 			double angleOffsetOuter = halfSliceSweep - gap;
 			double angleOffsetInner = halfSliceSweep - gap / innerFraction;
 			double outerRadius = content.Width / 2.0;
@@ -102,21 +89,22 @@
 			Point endOuter = PointOnCircle(bisector + angleOffsetOuter, outerRadius);
 			Point endInner = PointOnCircle(bisector + angleOffsetInner, innerRadius);
 
-			Size sizeOuter = new Size(outerRadius, outerRadius);
-			Size sizeInner = new Size(innerRadius, innerRadius);
+			var sizeOuter = new Size(outerRadius, outerRadius);
+			var sizeInner = new Size(innerRadius, innerRadius);
 
-			PathSegmentCollection segments = new PathSegmentCollection();
+			var segments = new PathSegmentCollection();
 			segments.Add(new ArcSegment(endOuter, sizeOuter, 45.0, isLargeArc: false, SweepDirection.Clockwise, isStroked: false));
 			segments.Add(new LineSegment(endInner, isStroked: false));
 			segments.Add(new ArcSegment(startInner, sizeInner, 45.0, isLargeArc: false, SweepDirection.Counterclockwise, isStroked: false));
 			segments.Add(new LineSegment(startOuter, isStroked: false));
 
-			PathFigure figure = new PathFigure(startOuter, segments, true);
-			PathFigureCollection figures = new PathFigureCollection();
+			var figure = new PathFigure(startOuter, segments, true);
+			var figures = new PathFigureCollection();
 			figures.Add(figure);
-			Path path = new Path();
-			PathGeometry geo = new PathGeometry(figures);
+			var path = new Path();
+			var geo = new PathGeometry(figures);
 			path.Data = geo;
+			path.Fill = new SolidColorBrush(Color.FromRgb(0, 0, 0));
 			return path;
 		}
 
